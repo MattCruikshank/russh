@@ -4,18 +4,21 @@ mod windows;
 #[cfg(not(windows))]
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(target_os = "motor"))]
+#[cfg(not(target_os = "hermit"))]
 mod unix;
 
-// Motor OS has no memory-locking API; it uses the wasm no-op implementation.
-#[cfg(any(target_arch = "wasm32", target_os = "motor"))]
+// Motor OS has no memory-locking API, and Hermit (a unikernel) has no swap; both use the wasm
+// no-op implementation.
+#[cfg(any(target_arch = "wasm32", target_os = "motor", target_os = "hermit"))]
 mod wasm;
 
 // Re-export functions based on the platform
 #[cfg(not(windows))]
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(not(target_os = "motor"))]
+#[cfg(not(target_os = "hermit"))]
 pub use unix::{mlock, munlock};
-#[cfg(any(target_arch = "wasm32", target_os = "motor"))]
+#[cfg(any(target_arch = "wasm32", target_os = "motor", target_os = "hermit"))]
 pub use wasm::{mlock, munlock};
 #[cfg(windows)]
 pub use windows::{mlock, munlock};

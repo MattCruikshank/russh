@@ -32,6 +32,8 @@ use delegate::delegate;
 use log::trace;
 #[cfg(all(not(feature = "aws-lc-rs"), feature = "ring"))]
 use ring::aead::{AES_128_GCM as ALGORITHM_AES_128_GCM, AES_256_GCM as ALGORITHM_AES_256_GCM};
+#[cfg(not(any(feature = "aws-lc-rs", feature = "ring")))]
+use self::gcm::{ALGORITHM_AES_128_GCM, ALGORITHM_AES_256_GCM};
 use ssh_encoding::Encode;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
@@ -42,9 +44,22 @@ use crate::sshbuffer::SSHBuffer;
 
 pub(crate) mod block;
 pub(crate) mod cbc;
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 pub(crate) mod chacha20poly1305;
+#[cfg(not(any(feature = "aws-lc-rs", feature = "ring")))]
+#[path = "chacha20poly1305_rustcrypto.rs"]
+pub(crate) mod chacha20poly1305;
+// With a C backend too, the RustCrypto versions are compiled for the cross-check tests below.
+#[cfg(all(test, feature = "rustcrypto", any(feature = "aws-lc-rs", feature = "ring")))]
+mod chacha20poly1305_rustcrypto;
 pub(crate) mod clear;
+#[cfg(any(feature = "aws-lc-rs", feature = "ring"))]
 pub(crate) mod gcm;
+#[cfg(not(any(feature = "aws-lc-rs", feature = "ring")))]
+#[path = "gcm_rustcrypto.rs"]
+pub(crate) mod gcm;
+#[cfg(all(test, feature = "rustcrypto", any(feature = "aws-lc-rs", feature = "ring")))]
+mod gcm_rustcrypto;
 
 use block::SshBlockCipher;
 use chacha20poly1305::SshChacha20Poly1305Cipher;
@@ -413,5 +428,78 @@ mod tests {
         #[allow(clippy::indexing_slicing)]
         let payload = &buffer.buffer[5..n];
         assert_eq!(payload, [52]);
+    }
+}
+
+#[cfg(all(test, feature = "rustcrypto", any(feature = "aws-lc-rs", feature = "ring")))]
+mod rustcrypto_cross_check {
+    use super::Cipher;
+    use crate::mac::_NONE;
+
+    /// Seals packets of many sizes with both implementations: identical ciphertext and tags,
+    /// and each opens the other's.
+    fn check(reference: &dyn Cipher, rustcrypto: &dyn Cipher) {
+        let mac = &_NONE;
+        let key: Vec<u8> = (0..reference.key_len()).map(|i| (i * 7 + 3) as u8).collect();
+        let nonce: Vec<u8> = (0..reference.nonce_len()).map(|i| (i * 13 + 1) as u8).collect();
+        let mut seal_a = reference.make_sealing_key(&key, &nonce, &[], mac);
+        let mut seal_b = rustcrypto.make_sealing_key(&key, &nonce, &[], mac);
+        let mut open_a = reference.make_opening_key(&key, &nonce, &[], mac);
+        let mut open_b = rustcrypto.make_opening_key(&key, &nonce, &[], mac);
+        assert_eq!(seal_a.tag_len(), seal_b.tag_len());
+        for (sequence, payload_len) in [0usize, 1, 15, 16, 17, 100, 1000, 35_000].into_iter().enumerate() {
+            let sequence = sequence as u32 * 1_000_003;
+            // A packet: 4-byte length, then the (padded) payload.
+            let total = 4 + payload_len + (16 - payload_len % 16);
+            let mut a: Vec<u8> = (0..total).map(|i| (i * 31 + payload_len) as u8).collect();
+            a[..4].copy_from_slice(&((total - 4) as u32).to_be_bytes());
+            let mut b = a.clone();
+            let mut tag_a = vec![0; seal_a.tag_len()];
+            let mut tag_b = vec![0; seal_b.tag_len()];
+            seal_a.seal(sequence, &mut a, &mut tag_a);
+            seal_b.seal(sequence, &mut b, &mut tag_b);
+            assert_eq!(a, b, "ciphertext, payload {payload_len}");
+            assert_eq!(tag_a, tag_b, "tag, payload {payload_len}");
+            assert_eq!(
+                open_a.decrypt_packet_length(sequence, &a[..4]),
+                open_b.decrypt_packet_length(sequence, &b[..4])
+            );
+            // Each implementation opens what the *other* sealed.
+            let mut packet_a = [a.clone(), tag_a.clone()].concat();
+            let mut packet_b = [b.clone(), tag_b.clone()].concat();
+            let plain_a = open_a.open(sequence, &mut packet_b).unwrap().to_vec();
+            let plain_b = open_b.open(sequence, &mut packet_a).unwrap().to_vec();
+            assert_eq!(plain_a, plain_b);
+        }
+    }
+
+    #[test]
+    fn chacha20_poly1305_matches() {
+        check(
+            &super::chacha20poly1305::SshChacha20Poly1305Cipher {},
+            &super::chacha20poly1305_rustcrypto::SshChacha20Poly1305Cipher {},
+        );
+    }
+
+    #[test]
+    fn aes_gcm_matches() {
+        check(&super::_AES_128_GCM, &super::gcm_rustcrypto::GcmCipher(&super::gcm_rustcrypto::ALGORITHM_AES_128_GCM));
+        check(&super::_AES_256_GCM, &super::gcm_rustcrypto::GcmCipher(&super::gcm_rustcrypto::ALGORITHM_AES_256_GCM));
+    }
+
+    #[test]
+    fn chacha20_poly1305_rejects_tampering() {
+        let mac = &_NONE;
+        let key = [7u8; 64];
+        let rc = super::chacha20poly1305_rustcrypto::SshChacha20Poly1305Cipher {};
+        let mut seal = rc.make_sealing_key(&key, &[], &[], mac);
+        let mut open = rc.make_opening_key(&key, &[], &[], mac);
+        let mut packet = vec![0u8; 4 + 32];
+        packet[..4].copy_from_slice(&32u32.to_be_bytes());
+        let mut tag = vec![0; 16];
+        seal.seal(9, &mut packet, &mut tag);
+        let mut sealed = [packet, tag].concat();
+        sealed[6] ^= 0x80;
+        assert!(open.open(9, &mut sealed).is_err());
     }
 }

@@ -68,6 +68,10 @@ polyval = "0.7.1" # only pinned due to a cargo-minimal-versions failure in 0.7.0
 rand.workspace = true
 rand_core = { version = "0.10.0" }
 ring = { version = "0.17.14", optional = true }
+# `rustcrypto` backend (pure Rust, no C): the two AEAD ciphers the other backends provide.
+aes-gcm = { version = "0.11", optional = true, default-features = false, features = ["aes"] }
+chacha20 = { version = "0.10", optional = true, default-features = false, features = ["legacy"] }
+poly1305 = { version = "0.9", optional = true }
 rsa = { version = "0.10", optional = true }
 russh-cryptovec = { version = "0.62.0", path = "../cryptovec", features = [
     "ssh-encoding",
@@ -118,6 +122,9 @@ des = ["dep:des"]
 # Danger: DSA algorithm is insecure.
 dsa = ["ssh-key/dsa"]
 ring = ["dep:ring"]                           # Alternative crypto backend.
+# Pure-Rust crypto backend (RustCrypto), for targets without a C toolchain. Used only when
+# neither `aws-lc-rs` nor `ring` is enabled.
+rustcrypto = ["dep:aes-gcm", "dep:chacha20", "dep:poly1305"]
 rsa = ["dep:rsa", "dep:pkcs1", "ssh-key/rsa"]
 serde = ["ssh-key/serde"]
 _bench = ["dep:criterion"]

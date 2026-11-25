@@ -2647,6 +2647,7 @@ name = "russh"
 version = "0.65.4"
 dependencies = [
  "aes",
+ "aes-gcm",
  "anyhow",
  "aws-lc-rs",
  "bitflags 2.13.2",
@@ -2654,6 +2655,7 @@ dependencies = [
  "byteorder",
  "bytes",
  "cbc",
+ "chacha20",
  "cipher",
  "clap",
  "criterion",
@@ -2691,6 +2693,7 @@ dependencies = [
  "pkcs1",
  "pkcs5",
  "pkcs8",
+ "poly1305",
  "polyval",
  "rand 0.10.3",
  "rand_core 0.10.1",
