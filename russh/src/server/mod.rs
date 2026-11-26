@@ -44,6 +44,7 @@ use russh_util::runtime::JoinHandle;
 use russh_util::time::Instant;
 use ssh_key::{Certificate, PrivateKey};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+#[cfg(not(target_os = "wasi"))]
 use tokio::net::{TcpListener, ToSocketAddrs};
 use tokio::pin;
 use tokio::sync::{broadcast, mpsc};
@@ -934,6 +935,8 @@ pub trait Server {
     /// Called when an active connection fails.
     fn handle_session_error(&mut self, _error: <Self::Handler as Handler>::Error) {}
 
+    /// Not on WASI: there are no OS sockets (use `run_stream`).
+    #[cfg(not(target_os = "wasi"))]
     /// Run a server on a specified `tokio::net::TcpListener`. Useful when dropping
     /// privileges immediately after socket binding, for example.
     fn run_on_socket(
@@ -1032,6 +1035,8 @@ pub trait Server {
         }
     }
 
+    /// Not on WASI: there are no OS sockets (use `run_stream`).
+    #[cfg(not(target_os = "wasi"))]
     /// Run a server.
     /// This is a convenience function; consider using `run_on_socket` for more control.
     fn run_on_address<A: ToSocketAddrs + Send>(

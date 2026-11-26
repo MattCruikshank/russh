@@ -778,7 +778,7 @@ impl<H: Handler> Handle<H> {
     }
 
     /// See [`Handle::best_supported_rsa_hash`].
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
     async fn await_extension_info(&self, extension_name: String) -> Result<(), crate::Error> {
         let (sender, receiver) = oneshot::channel();
         self.sender
@@ -809,7 +809,7 @@ impl<H: Handler> Handle<H> {
     /// you can assume that it will return `None` every time.
     pub async fn best_supported_rsa_hash(&self) -> Result<Option<Option<HashAlg>>, Error> {
         // Wait for the extension info from the server
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
         self.await_extension_info("server-sig-algs".into()).await?;
 
         let (sender, receiver) = oneshot::channel();
@@ -1902,7 +1902,7 @@ impl Session {
     }
 
     fn rekey_time_remaining(&self) -> Option<Duration> {
-        if cfg!(target_arch = "wasm32") || !self.automatic_rekey_allowed() {
+        if cfg!(all(target_arch = "wasm32", not(target_os = "wasi"))) || !self.automatic_rekey_allowed() {
             return None;
         }
         self.common

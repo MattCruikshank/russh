@@ -20,14 +20,15 @@ where
     handle: tokio::sync::oneshot::Receiver<T>,
 }
 
-#[cfg(target_arch = "wasm32")]
+// In a browser (wasm32 without WASI): the JavaScript event loop. Elsewhere, WASI too: Tokio.
+#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
 macro_rules! spawn_impl {
     ($fn:expr) => {
         wasm_bindgen_futures::spawn_local($fn)
     };
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 macro_rules! spawn_impl {
     ($fn:expr) => {
         tokio::spawn($fn)

@@ -80,10 +80,10 @@ pub use ssh_key::{self, Algorithm, Certificate, EcdsaCurve, HashAlg, PrivateKey,
 /// OpenSSH agent protocol implementation
 pub mod agent;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 pub mod known_hosts;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 pub use known_hosts::{check_known_hosts, check_known_hosts_path};
 
 pub use crate::cert::PublicKeyOrCertificate;
